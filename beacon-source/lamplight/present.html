@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#F5F1E9">
+<title>Beacon host</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700&family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="lamp.css"></head>
+<body><main class="wide">
+<section id="login" style="max-width:420px;margin:auto">
+  <div class="brand"><svg class="logo" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+<path d="M24 4 L24 12" stroke="url(#bg)" stroke-width="3" stroke-linecap="round"/>
+<path d="M12 10 L17 15M36 10 L31 15" stroke="url(#bg)" stroke-width="3" stroke-linecap="round"/>
+<circle cx="24" cy="24" r="9" fill="url(#bg)"/>
+<path d="M9 44 L16 20 H32 L39 44 Z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+<defs><linearGradient id="bg" x1="0" y1="0" x2="48" y2="48"><stop stop-color="#FFC94A"/><stop offset="1" stop-color="#FF7A1A"/></linearGradient></defs></svg><span>Beacon</span></div><h1 style="text-align:center;font-size:1.4rem">Host login</h1>
+  <input id="em" type="email" placeholder="Email" autocomplete="username"><input id="pw" type="password" placeholder="Password" autocomplete="current-password">
+  <button class="primary" id="li">Log in</button><p id="msg" class="err" role="alert"></p>
+</section>
+<section id="setup" class="hide" style="max-width:1180px;margin:auto">
+  <div class="app-shell">
+    <nav class="sidenav">
+      <div class="brand" style="justify-content:flex-start;margin-bottom:8px"><svg class="logo" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+<path d="M24 4 L24 12" stroke="url(#bg)" stroke-width="3" stroke-linecap="round"/>
+<path d="M12 10 L17 15M36 10 L31 15" stroke="url(#bg)" stroke-width="3" stroke-linecap="round"/>
+<circle cx="24" cy="24" r="9" fill="url(#bg)"/>
+<path d="M9 44 L16 20 H32 L39 44 Z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+<defs><linearGradient id="bg" x1="0" y1="0" x2="48" y2="48"><stop stop-color="#FFC94A"/><stop offset="1" stop-color="#FF7A1A"/></linearGradient></defs></svg><span>Beacon</span></div>
+      <a class="navlink current" href="present.html" id="navHome">Home</a>
+      <a class="navlink" href="studies.html" id="navStudies">Studies</a>
+      <a class="navlink" href="settings.html" id="navSettings">Settings</a>
+      <hr>
+      <a class="navlink" href="index.html" id="navJoin">Join a quiz</a>
+    </nav>
+    <div class="main-col">
+      <p class="hero-line">Host a quiz.</p>
+      <p class="small">Start a session, build a study, or tune how everything looks.</p>
+      <div class="feature-grid">
+        <div class="feature-card" id="startCard">
+          <h2>Start a session</h2>
+          <p class="small">Pick a study and go live with a join code and QR.</p>
+          <select id="study" aria-label="Study"></select>
+          <button class="primary" id="create">Create session</button>
+        </div>
+        <a class="feature-card" href="studies.html" style="text-decoration:none;color:inherit">
+          <h2 id="fcStudies">Studies</h2>
+          <p class="small">Create, edit and reorder your questions.</p>
+          <span class="arrow">&rarr;</span>
+        </a>
+        <a class="feature-card" href="settings.html" style="text-decoration:none;color:inherit">
+          <h2 id="fcSettings">Settings</h2>
+          <p class="small">Default timer, points and theme.</p>
+          <span class="arrow">&rarr;</span>
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+<section id="live" class="hide"><div id="stage"></div><div id="bar" class="row"></div></section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="config.js"></script><script src="lamp.js"></script>
+<script>
+const TF=['True','False'];
+let S,code,total=0,ses,res,lb,ppl=[],qrEl=null;
+loadTheme();
+g('navHome').innerHTML=ICONS.home+' Home';g('navStudies').innerHTML=ICONS.studies+' Studies';g('navSettings').innerHTML=ICONS.settings+' Settings';g('navJoin').innerHTML=ICONS.join+' Join a quiz';
+g('fcStudies').innerHTML=ICONS.studies+' Studies';g('fcSettings').innerHTML=ICONS.settings+' Settings';
+const say=t=>g('msg').textContent=t||'';
+g('li').onclick=async()=>{say();const{error}=await sb.auth.signInWithPassword({email:g('em').value,password:g('pw').value});if(error)return say('Login failed. Check your email and password.');after()};
+(async()=>{const{data:{session}}=await sb.auth.getSession();if(session&&!session.user.is_anonymous)after()})();
+async function after(){const{data}=await sb.rpc('claim_host');if(!data){await sb.auth.signOut();return say('This account is not the host account.')}
+ syncClock();g('login').classList.add('hide');const id=localStorage.lampHost;
+ if(id){const{data:s}=await sb.from('sessions').select('id,code,status').eq('id',id).maybeSingle();if(s&&s.status!=='ended')return enter(s.id,s.code)}
+ const{data:st}=await sb.from('studies').select('id,title').order('created_at');
+ g('study').innerHTML=(st||[]).map(x=>`<option value="${x.id}">${esc(x.title)}</option>`).join('');g('setup').classList.remove('hide')}
+g('create').onclick=async()=>{const{data,error}=await sb.rpc('create_session',{p_study_id:g('study').value});if(error)return alert('Could not create: '+error.message);enter(data.id,data.code)};
+async function enter(id,c){S=id;code=c;localStorage.lampHost=id;g('setup').classList.add('hide');g('live').classList.remove('hide');
+ const{data:s}=await sb.from('sessions').select('study_id').eq('id',id).single();
+ const{count}=await sb.from('questions').select('id',{count:'exact',head:true}).eq('study_id',s.study_id);total=count||0;
+ const el=document.createElement('div');new QRCode(el,{text:(L.publicUrl||location.origin)+'/?c='+code,width:220,height:220,colorDark:'#15161A',colorLight:'#fff'});qrEl=el;
+ sb.channel('h'+S).on('postgres_changes',{event:'UPDATE',schema:'public',table:'sessions',filter:'id=eq.'+S},tick).subscribe();
+ setInterval(tick,2000);tick()}
+async function tick(){try{const{data:s}=await sb.from('sessions').select('*').eq('id',S).single();ses=s;
+ const[r,p,l]=await Promise.all([sb.rpc('get_results',{p_session_id:S}),sb.from('participants').select('id,nickname').eq('session_id',S).eq('removed',false).order('joined_at'),sb.rpc('get_leaderboard',{p_session_id:S,p_limit:5})]);
+ res=r.data;ppl=p.data||[];lb=l.data;paint()}catch(e){}}
+function optsFor(q){return q.kind==='true_false'?TF:q.options}
+function resultsBlock(q,shown){
+ if(q.kind==='word_cloud'){const w=res?.words||[];if(!w.length)return'<p class="small">Waiting for answers...</p>';const mx=Math.max(...w.map(x=>x.count));
+  return `<div class="wordcloud">${w.map((x,i)=>`<span style="font-size:${1+1.6*x.count/mx}em;animation-delay:${Math.min(i*0.05,1)}s">${esc(x.text)}</span>`).join('')}</div>`}
+ const c=res?.counts||[],sum=c.reduce((a,b)=>a+b,0)||1;
+ if(q.kind==='rating'){const labels=['1','2','3','4','5'],avg=sum?(c.reduce((a,n,i)=>a+n*(i+1),0)/sum).toFixed(1):'-';
+  return `<p>Average: <b>${avg}</b></p><div class="opts" style="grid-template-columns:repeat(5,1fr)">${labels.map((l,i)=>`<div class="opt a" style="min-height:60px"><b style="font-size:1.1em">${l}</b><span style="margin-left:auto">${c[i]||0}</span></div>`).join('')}</div>`}
+ const o=optsFor(q);
+ return `<div class="opts">${o.map((op,i)=>`<div class="opt ${CL[i]}" style="${shown&&q.kind!=='poll'&&i!==ses.reveal_correct_index?'opacity:.4':''}"><b>${SH[i]}</b>${esc(op)}${shown&&q.kind!=='poll'&&i===ses.reveal_correct_index?' (correct)':''}${shown?`<span style="margin-left:auto">${q.kind==='poll'?Math.round(c[i]/sum*100)+'%':c[i]}</span><i class="fill" style="width:${c[i]/sum*100}%;background:rgba(255,255,255,.35);position:absolute;left:0;bottom:0;height:8px"></i>`:''}</div>`).join('')}</div>`}
+function paint(){const st=ses.status,q=ses.current_question;let h='';
+ if(st==='lobby'){h=`<h1>Join at ${esc(L.publicUrl?new URL(L.publicUrl).host:location.host)}</h1><p class="small">or scan the code</p><div class="ring" style="width:auto;height:auto;background:none;font-size:clamp(3.5rem,13vw,8rem);letter-spacing:.08em;font-family:'Fraunces',serif;color:var(--accent)"><span>${esc(code)}</span></div><div id="qr" class="qr"></div><h2>${ppl.length} joined</h2><div>${ppl.map(x=>`<span class="chip">${esc(x.nickname)}<button data-rm="${x.id}" aria-label="Remove ${esc(x.nickname)}">x</button></span>`).join('')}</div>`}
+ else if(st==='leaderboard'||st==='ended'){const top=lb?.top||[],mx=Math.max(1,...top.map(r=>r.score)),medals=['🥇','🥈','🥉'];if(st==='ended'&&!window.__conf){window.__conf=1;confettiBurst(120)}
+  h=`<h1>${st==='ended'?'Thank you for joining!':'Leaderboard'}</h1><ul class="lb">${top.map(r=>`<li><span class="rank">${r.rank}</span><span class="av">${medals[r.rank-1]||'⭐'}</span><div class="bar"><i class="fillbar ${CL[(r.rank-1)%4]}" data-w="${Math.max(10,r.score/mx*100)}"></i><span class="lbl">${esc(r.nickname)}</span><span class="pts">${r.score}</span></div></li>`).join('')}</ul>`}
+ else{const shown=st==='revealed';
+  h=`<p class="small">Question ${q.index+1} of ${q.total}</p><h1 style="font-size:clamp(1.8rem,5vw,3.6rem)">${esc(q.prompt)}</h1>${st==='question'?'<div class="ring" id="ringwrap"><span id="tm"></span></div>':''}<p>${res?res.answered:0} of ${res?res.participants:0} answered</p>${resultsBlock(q,shown)}`}
+ if(st==='question'){const stage=g('stage');stage.style.transition='none';stage.style.opacity=1;stage.style.transform='none';stage.innerHTML=h;if(g('qr'))g('qr').appendChild(qrEl)}
+ else fadeSwap(g('stage'),h,()=>{if(g('qr'))g('qr').appendChild(qrEl);g('stage').querySelectorAll('.fillbar').forEach(el=>requestAnimationFrame(()=>requestAnimationFrame(()=>el.style.width=el.dataset.w+'%')))});
+ const nx=(ses.current_index+1)>=total?['end','Finish session']:['next','Next question'];
+ const B={lobby:[['next','Start first question']],question:[['lock','Lock answers','alt'],['reveal','Reveal answer']],locked:[['reveal','Reveal answer']],revealed:[['board','Show leaderboard','alt'],nx],leaderboard:[nx],ended:[]}[st];
+ g('bar').innerHTML=B.map(b=>`<button class="${b[2]||'primary'}" data-a="${b[0]}">${b[1]}</button>`).join('');
+ if(st==='ended'){localStorage.removeItem('lampHost');g('bar').innerHTML='<button class="primary" onclick="location.reload()">New session</button>'}}
+g('live').onclick=async e=>{const rm=e.target.dataset.rm,a=e.target.dataset.a;if(rm){await sb.rpc('remove_participant',{p_participant_id:rm});return tick()}if(!a)return;e.target.disabled=true;
+ let er;
+ if(a==='next')er=(await sb.rpc('start_question',{p_session_id:S,p_index:ses.current_index+1})).error;
+ if(a==='lock')er=(await sb.rpc('lock_question',{p_session_id:S})).error;if(a==='reveal')er=(await sb.rpc('reveal_question',{p_session_id:S})).error;
+ if(a==='board')er=(await sb.rpc('show_leaderboard',{p_session_id:S})).error;if(a==='end')er=(await sb.rpc('end_session',{p_session_id:S})).error;
+ if(er){alert(er.message==='no_such_question'||er.message?.includes('no_such_question')?'This session lost its study (it may have been deleted). Please end it and start a new one from a current study.':'Something went wrong: '+er.message);if(er.message?.includes('no_such_question')){localStorage.removeItem('lampHost');location.reload()}}
+ tick()};
+setInterval(()=>{const t=g('tm'),w=g('ringwrap');if(!t||!ses||ses.status!=='question')return;const left=Math.max(0,(new Date(ses.question_ends_at)-now())/1000),total=ses.current_question.time_limit;
+ t.textContent=Math.ceil(left)+'s';if(w){w.style.setProperty('--pct',Math.max(0,left/total*100));w.classList.toggle('low',left<=5&&left>0)}},150);
+</script></body></html>

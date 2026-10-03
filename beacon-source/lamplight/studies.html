@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#F5F1E9">
+<title>Beacon studies</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="lamp.css">
+<style>.oprow input[type=text]{margin:4px 0}.card label{flex:1;min-width:140px}</style></head>
+<body><main class="wide" style="max-width:1180px">
+<div class="app-shell">
+  <nav class="sidenav">
+    <div class="brand" style="justify-content:flex-start;margin-bottom:8px"><svg class="logo" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+<path d="M24 4 L24 12" stroke="url(#bg)" stroke-width="3" stroke-linecap="round"/>
+<path d="M12 10 L17 15M36 10 L31 15" stroke="url(#bg)" stroke-width="3" stroke-linecap="round"/>
+<circle cx="24" cy="24" r="9" fill="url(#bg)"/>
+<path d="M9 44 L16 20 H32 L39 44 Z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+<defs><linearGradient id="bg" x1="0" y1="0" x2="48" y2="48"><stop stop-color="#FFC94A"/><stop offset="1" stop-color="#FF7A1A"/></linearGradient></defs></svg><span>Beacon</span></div>
+    <a class="navlink" href="present.html" id="navHome">Home</a>
+    <a class="navlink current" href="studies.html" id="navStudies">Studies</a>
+    <a class="navlink" href="settings.html" id="navSettings">Settings</a>
+    <hr>
+    <a class="navlink" href="index.html" id="navJoin">Join a quiz</a>
+  </nav>
+  <div class="main-col">
+<h1 style="margin:0">Studies</h1>
+<section id="gate" class="hide"><p>Please <a href="present.html">log in on the host page</a> first, then come back here.</p></section>
+<section id="list"></section><section id="edit" class="hide"></section>
+  </div>
+</div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script><script src="lamp.js"></script>
+<script>
+let Q=[],cur=null,active=0,DEF={time:20,pts:1000};
+g('navHome').innerHTML=ICONS.home+' Home';g('navStudies').innerHTML=ICONS.studies+' Studies';g('navSettings').innerHTML=ICONS.settings+' Settings';g('navJoin').innerHTML=ICONS.join+' Join a quiz';
+const KINDS={multiple_choice:'Multiple choice',true_false:'True / False',poll:'Poll (no score)',rating:'Rating 1-5',word_cloud:'Word cloud'};
+(async()=>{const{data:{session}}=await sb.auth.getSession();const ok=session&&!session.user.is_anonymous&&(await sb.rpc('is_host')).data;if(!ok){g('gate').classList.remove('hide');return}
+ const s=await loadTheme();if(s){DEF.time=s.default_time_seconds;DEF.pts=s.default_points}showList()})();
+async function showList(){cur=null;g('edit').classList.add('hide');g('list').classList.remove('hide');
+ const{data}=await sb.from('studies').select('id,title').order('created_at',{ascending:false});
+ g('list').innerHTML=`<div class="card">
+   <h2 style="margin-top:0">✨ Generate with AI</h2>
+   <p class="small">Type a Bible passage or topic and get a draft set of questions to review and edit.</p>
+   <div class="row"><input id="aiTopic" placeholder="e.g. Romans 12 - Living Differently" style="flex:2"><input id="aiCount" type="number" min="1" max="15" value="8" aria-label="Number of questions" style="max-width:110px"></div>
+   <button class="primary" id="aiGo">Generate questions</button><p id="aiMsg" class="err"></p>
+ </div>
+ <button class="alt" data-new="1" style="max-width:220px">+ Blank study</button>`+(data||[]).map(s=>`<div class="card row" style="align-items:center;justify-content:space-between"><b>${esc(s.title)}</b><div class="row" style="width:auto"><button data-open="${s.id}">Open</button><button class="alt" data-dupst="${s.id}">Duplicate</button><button class="alt" data-delst="${s.id}">Delete</button></div></div>`).join('')}
+function blank(){return{kind:'multiple_choice',prompt:'',opts:['','','',''],correct:0,time:DEF.time,pts:DEF.pts,scaleLo:'Strongly disagree',scaleHi:'Strongly agree'}}
+async function open(id){const{data:s}=await sb.from('studies').select('*').eq('id',id).single();
+ const{data:qs}=await sb.from('questions').select('*').eq('study_id',id).order('position').order('created_at');
+ const{data:ks}=qs&&qs.length?await sb.from('question_keys').select('*').in('question_id',qs.map(q=>q.id)):{data:[]};
+ const km=Object.fromEntries((ks||[]).map(k=>[k.question_id,k.correct_index]));
+ cur=s;active=0;
+ Q=(qs||[]).map(q=>({id:q.id,kind:q.kind,prompt:q.prompt,
+   opts:q.kind==='multiple_choice'||q.kind==='poll'?[...q.options,'','','',''].slice(0,4):['','','',''],
+   correct:km[q.id]??0,time:q.time_limit_seconds,pts:q.points,
+   scaleLo:q.kind==='rating'?q.options[0]:'Strongly disagree',scaleHi:q.kind==='rating'?q.options[1]:'Strongly agree'}));
+ if(!Q.length)Q.push(blank());render()}
+function render(){g('list').classList.add('hide');const e=g('edit');e.classList.remove('hide');
+ const q=Q[active]||blank();const poll=q.kind==='poll',choice=q.kind==='multiple_choice'||q.kind==='true_false'||q.kind==='poll';
+ e.innerHTML=`<button class="alt" data-back="1" style="max-width:160px">&larr; All studies</button>
+ <input id="st" value="${esc(cur.title)}" aria-label="Study title" maxlength="120" placeholder="Study title">
+ <div class="shell">
+  <div class="slides">${Q.map((x,i)=>`<div class="slide-thumb ${i===active?'active':''}" data-go="${i}"><span class="num">${i+1}</span><div class="txt">${esc(x.prompt||'Untitled question')}</div><span class="kindtag">${KINDS[x.kind]}</span></div>`).join('')}
+   <button class="alt" data-add="1">+ Add question</button></div>
+  <div>
+   <div class="card">
+    <div class="row"><b style="align-self:center">Question ${active+1}</b><select data-f="kind" aria-label="Question type" style="max-width:220px">${Object.entries(KINDS).map(([v,l])=>`<option value="${v}" ${q.kind===v?'selected':''}>${l}</option>`).join('')}</select></div>
+    <textarea data-f="prompt" rows="2" maxlength="300" placeholder="Type your question" aria-label="Question">${esc(q.prompt)}</textarea>
+    ${choice?q.opts.map((o,j)=>`<label class="oprow"><input type="radio" name="correct" data-c="${j}" ${q.correct===j?'checked':''} ${poll||q.kind==='true_false'?'hidden':''} aria-label="Mark option ${j+1} as correct"><span>${SH[j]}</span><input type="text" data-o="${j}" value="${esc(q.kind==='true_false'?(j===0?'True':j===1?'False':''):o)}" ${q.kind==='true_false'?'disabled':''} maxlength="100" placeholder="Option ${j+1}${j>1?' (optional)':''}" ${q.kind==='true_false'&&j>1?'style="display:none"':''}></label>`).join(''):''}
+    ${q.kind==='rating'?`<div class="row"><input data-f="scaleLo" value="${esc(q.scaleLo)}" placeholder="Low label (e.g. Strongly disagree)"><input data-f="scaleHi" value="${esc(q.scaleHi)}" placeholder="High label (e.g. Strongly agree)"></div><p class="small">Players pick 1 to 5. Not scored.</p>`:''}
+    ${q.kind==='word_cloud'?'<p class="small">Players type a short answer. Not scored; shown as a word cloud.</p>':''}
+    ${choice&&!poll&&q.kind!=='true_false'?'<p class="small">Tick the circle beside the correct answer.</p>':''}
+    ${q.kind==='true_false'?'<p class="small">Tick True or False as the correct answer.</p>':''}
+    <div class="row"><label>Seconds<input type="number" data-f="time" value="${q.time}" min="5" max="120"></label><label>Points<input type="number" data-f="pts" value="${q.pts}" min="0" max="2000" ${!choice||poll?'disabled':''}></label></div>
+    <div class="row"><button class="alt" data-up="1">Move up</button><button class="alt" data-dn="1">Move down</button><button class="alt" data-dup="1">Duplicate</button><button class="alt" data-del="1">Delete</button></div>
+   </div>
+   <button class="primary" data-save="1">Save study</button><p id="m" class="err" role="status"></p>
+  </div></div>`}
+function cq(){return Q[active]}
+document.addEventListener('input',e=>{const t=e.target,q=cq();if(!q)return;
+ if(t.dataset.f&&!['kind'].includes(t.dataset.f))q[t.dataset.f]=t.type==='number'?+t.value:t.value;
+ if(t.dataset.o!==undefined)q.opts[+t.dataset.o]=t.value;
+ if(t.id==='st'||!t.closest('.card'))return;
+ if(t.dataset.f==='prompt'){const th=document.querySelector(`.slide-thumb[data-go="${active}"] .txt`);if(th)th.textContent=t.value||'Untitled question'}});
+document.addEventListener('change',e=>{const t=e.target,q=cq();if(!q)return;
+ if(t.dataset.c!==undefined)q.correct=+t.dataset.c;
+ if(t.dataset.f==='kind'){q.kind=t.value;if(t.value==='true_false'){q.opts=['True','False','',''];q.correct=Math.min(q.correct,1)}render()}});
+function clampTime(t){t=parseInt(t,10);if(!t||t<5)t=20;return Math.min(120,Math.max(5,t))}
+function clampPts(p){p=parseInt(p,10);if(!p)p=1000;return Math.min(2000,Math.max(0,p))}
+function fromAI(item){
+ const kind=['multiple_choice','true_false','poll','rating','word_cloud'].includes(item.kind)?item.kind:'multiple_choice';
+ const opts=Array.isArray(item.options)?item.options.map(String):[];
+ const time=clampTime(item.time);
+ if(kind==='true_false')return{kind,prompt:String(item.prompt||''),opts:['True','False','',''],correct:item.correct_index===1?1:0,time,pts:clampPts(item.points),scaleLo:'Strongly disagree',scaleHi:'Strongly agree'};
+ if(kind==='rating')return{kind,prompt:String(item.prompt||''),opts:['','','',''],correct:0,time,pts:0,scaleLo:opts[0]||'Strongly disagree',scaleHi:opts[1]||'Strongly agree'};
+ if(kind==='word_cloud')return{kind,prompt:String(item.prompt||''),opts:['','','',''],correct:0,time,pts:0,scaleLo:'Strongly disagree',scaleHi:'Strongly agree'};
+ const padded=[...opts,'','','',''].slice(0,4);
+ const correct=kind==='poll'?0:Math.min(3,Math.max(0,parseInt(item.correct_index,10)||0));
+ return{kind,prompt:String(item.prompt||''),opts:padded,correct,time,pts:kind==='poll'?0:clampPts(item.points),scaleLo:'Strongly disagree',scaleHi:'Strongly agree'}}
+async function generateAI(){
+ const topic=g('aiTopic').value.trim(),count=Math.min(15,Math.max(1,+g('aiCount').value||8)),msg=g('aiMsg');msg.textContent='';
+ if(!topic){msg.textContent='Type a topic or passage first.';return}
+ const btn=g('aiGo');btn.disabled=true;msg.textContent='Generating...';
+ try{
+  const{data:{session}}=await sb.auth.getSession();
+  const r=await fetch('/api/generate-questions',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+(session&&session.access_token||'')},body:JSON.stringify({topic,count})});
+  const out=await r.json();
+  if(!r.ok){msg.textContent=out.error==='ai_not_configured'?"AI isn't set up yet - add the Gemini API key first.":out.error==='not_host'?'Please log in again.':'Could not generate questions. Try again.';btn.disabled=false;return}
+  const items=Array.isArray(out.questions)?out.questions:[];
+  if(!items.length){msg.textContent='No questions came back. Try a different topic.';btn.disabled=false;return}
+  const{data:study,error}=await sb.from('studies').insert({title:topic.slice(0,120)}).select('id').single();
+  if(error){msg.textContent='Could not create the study: '+error.message;btn.disabled=false;return}
+  cur=study;active=0;Q=items.map(fromAI);render()
+ }catch(e){msg.textContent='Connection problem. Try again.';btn.disabled=false}}
+document.addEventListener('click',async e=>{const d=e.target.dataset;
+ if(e.target.id==='aiGo'){generateAI();return}
+ if(d.new){const{data}=await sb.from('studies').insert({title:'Untitled study'}).select('id').single();open(data.id)}
+ if(d.open)open(d.open);if(d.back)showList();if(d.dupst)dupStudy(d.dupst);
+ if(d.delst&&confirm('Delete this study and its questions?')){await sb.from('studies').delete().eq('id',d.delst);showList()}
+ if(d.go!==undefined){active=+d.go;render()}
+ if(d.add){Q.push(blank());active=Q.length-1;render()}
+ if(d.up){if(active>0){[Q[active-1],Q[active]]=[Q[active],Q[active-1]];active--;render()}}
+ if(d.dn){if(active<Q.length-1){[Q[active+1],Q[active]]=[Q[active],Q[active+1]];active++;render()}}
+ if(d.dup){Q.splice(active+1,0,{...cq(),id:undefined,opts:[...cq().opts]});active++;render()}
+ if(d.del&&Q.length>1&&confirm('Delete this question?')){Q.splice(active,1);active=Math.max(0,active-1);render()}
+ if(d.save)save()});
+function validate(){for(const[i,q]of Q.entries()){
+  if(!q.prompt.trim())return`Question ${i+1}: add the question text.`;
+  if(q.kind==='multiple_choice'||q.kind==='poll'){const filled=q.opts.filter(o=>o.trim());if(filled.length<2)return`Question ${i+1}: add at least 2 options.`;
+   if(q.kind==='multiple_choice'&&!q.opts[q.correct]?.trim())return`Question ${i+1}: tick the correct answer (it can't be empty).`}
+  if(q.kind==='rating'&&(!q.scaleLo.trim()||!q.scaleHi.trim()))return`Question ${i+1}: add both scale labels.`}
+ return null}
+function rowFor(q){
+ if(q.kind==='multiple_choice'||q.kind==='poll'){const o=q.opts.map((t,j)=>[t.trim(),j]).filter(x=>x[0]);const ci=o.findIndex(x=>x[1]===q.correct);
+  return{options:o.map(x=>x[0]),ci:q.kind==='poll'?null:ci}}
+ if(q.kind==='true_false')return{options:['True','False'],ci:q.correct};
+ if(q.kind==='rating')return{options:[q.scaleLo.trim(),q.scaleHi.trim()],ci:null};
+ return{options:[],ci:null}}
+async function save(){const m=g('m');m.textContent='';const bad=validate();if(bad){m.textContent=bad;return}
+ m.textContent='Saving...';
+ await sb.from('studies').update({title:g('st').value.trim()||'Untitled study',updated_at:new Date().toISOString()}).eq('id',cur.id);
+ const{data:old}=await sb.from('questions').select('id').eq('study_id',cur.id);const keep=new Set(Q.filter(q=>q.id).map(q=>q.id));
+ const gone=(old||[]).map(x=>x.id).filter(id=>!keep.has(id));if(gone.length)await sb.from('questions').delete().in('id',gone);
+ for(const[i,q]of Q.entries()){const r=rowFor(q);
+  const body={study_id:cur.id,position:i,kind:q.kind,prompt:q.prompt.trim(),options:r.options,time_limit_seconds:Math.min(120,Math.max(5,q.time||20)),points:(q.kind==='multiple_choice'||q.kind==='true_false')?Math.min(2000,Math.max(0,q.pts||0)):0};
+  let id=q.id;
+  if(id){const{error}=await sb.from('questions').update(body).eq('id',id);if(error)return m.textContent='Save failed: '+error.message}
+  else{const{data,error}=await sb.from('questions').insert(body).select('id').single();if(error)return m.textContent='Save failed: '+error.message;id=q.id=data.id}
+  if(r.ci===null)await sb.from('question_keys').delete().eq('question_id',id);else await sb.from('question_keys').upsert({question_id:id,correct_index:r.ci})}
+ await open(cur.id);g('m').textContent='Saved.'}
+async function dupStudy(id){const{data:s}=await sb.from('studies').select('*').eq('id',id).single();
+ const{data:n}=await sb.from('studies').insert({title:'Copy of '+s.title,description:s.description}).select('id').single();
+ const{data:qs}=await sb.from('questions').select('*').eq('study_id',id).order('position');
+ const{data:ks}=qs&&qs.length?await sb.from('question_keys').select('*').in('question_id',qs.map(q=>q.id)):{data:[]};
+ const km=Object.fromEntries((ks||[]).map(k=>[k.question_id,k.correct_index]));
+ for(const q of qs||[]){const{data:nq}=await sb.from('questions').insert({study_id:n.id,position:q.position,kind:q.kind,prompt:q.prompt,options:q.options,time_limit_seconds:q.time_limit_seconds,points:q.points,image_url:q.image_url}).select('id').single();
+  if(km[q.id]!==undefined)await sb.from('question_keys').insert({question_id:nq.id,correct_index:km[q.id]})}
+ showList()}
+</script></body></html>

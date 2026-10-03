@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#F5F1E9">
+<title>Beacon settings</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="lamp.css"></head>
+<body><main class="wide" style="max-width:1180px">
+<div class="app-shell">
+  <nav class="sidenav">
+    <div class="brand" style="justify-content:flex-start;margin-bottom:8px"><svg class="logo" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+<path d="M24 4 L24 12" stroke="url(#bg)" stroke-width="3" stroke-linecap="round"/>
+<path d="M12 10 L17 15M36 10 L31 15" stroke="url(#bg)" stroke-width="3" stroke-linecap="round"/>
+<circle cx="24" cy="24" r="9" fill="url(#bg)"/>
+<path d="M9 44 L16 20 H32 L39 44 Z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+<defs><linearGradient id="bg" x1="0" y1="0" x2="48" y2="48"><stop stop-color="#FFC94A"/><stop offset="1" stop-color="#FF7A1A"/></linearGradient></defs></svg><span>Beacon</span></div>
+    <a class="navlink" href="present.html" id="navHome">Home</a>
+    <a class="navlink" href="studies.html" id="navStudies">Studies</a>
+    <a class="navlink current" href="settings.html" id="navSettings">Settings</a>
+    <hr>
+    <a class="navlink" href="index.html" id="navJoin">Join a quiz</a>
+  </nav>
+  <div class="main-col" style="max-width:560px">
+<h1 style="margin:0">Settings</h1>
+<section id="gate" class="hide"><p>Please <a href="present.html">log in on the host page</a> first, then come back here.</p></section>
+<section id="form" class="hide">
+  <div class="card">
+    <h2 style="margin-top:0">Theme</h2>
+    <p class="small">Applies everywhere - your dashboard, the big screen, and what players see on their phones.</p>
+    <div class="theme-pick">
+      <button data-t="warm"><span class="swatch" style="background:linear-gradient(135deg,#FFC94A,#FF7A1A)"></span>Warm</button>
+      <button data-t="cool"><span class="swatch" style="background:linear-gradient(135deg,#8B8FFF,#5B5FEF)"></span>Cool</button>
+      <button data-t="dark"><span class="swatch" style="background:linear-gradient(135deg,#2E3044,#12131C)"></span>Dark</button>
+    </div>
+  </div>
+  <div class="card">
+    <h2 style="margin-top:0">New question defaults</h2>
+    <p class="small">Used when you add a new question in the study editor. You can still change it per question.</p>
+    <div class="row">
+      <label style="flex:1;min-width:150px">Timer (seconds)<input id="dt" type="number" min="5" max="120"></label>
+      <label style="flex:1;min-width:150px">Points<input id="dp" type="number" min="0" max="2000"></label>
+    </div>
+  </div>
+  <button class="primary" id="save">Save settings</button><p id="m" class="err" role="status"></p>
+</section>
+  </div>
+</div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script><script src="lamp.js"></script>
+<script>
+let picked='warm';
+g('navHome').innerHTML=ICONS.home+' Home';g('navStudies').innerHTML=ICONS.studies+' Studies';g('navSettings').innerHTML=ICONS.settings+' Settings';g('navJoin').innerHTML=ICONS.join+' Join a quiz';
+(async()=>{const{data:{session}}=await sb.auth.getSession();const ok=session&&!session.user.is_anonymous&&(await sb.rpc('is_host')).data;if(!ok){g('gate').classList.remove('hide');return}
+ const s=await loadTheme();if(s){picked=s.theme;g('dt').value=s.default_time_seconds;g('dp').value=s.default_points}
+ paintPick();g('form').classList.remove('hide')})();
+function paintPick(){document.querySelectorAll('.theme-pick button').forEach(b=>b.classList.toggle('on',b.dataset.t===picked))}
+document.addEventListener('click',e=>{const t=e.target.closest('.theme-pick button');if(!t)return;picked=t.dataset.t;document.documentElement.dataset.theme=picked;paintPick()});
+g('save').onclick=async()=>{const m=g('m');m.textContent='Saving...';
+ const{error}=await sb.from('host_settings').update({theme:picked,default_time_seconds:Math.min(120,Math.max(5,+g('dt').value||20)),default_points:Math.min(2000,Math.max(0,+g('dp').value||1000))}).eq('id','00000000-0000-0000-0000-000000000001');
+ if(error)return m.textContent='Save failed: '+error.message;
+ localStorage.beaconTheme=picked;m.textContent='Saved.'};
+</script></body></html>

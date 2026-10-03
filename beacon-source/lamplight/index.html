@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#F5F1E9">
+<title>Beacon</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="lamp.css"></head>
+<body><main>
+<script>document.write(soundToggleHtml())</script>
+<div id="off" class="hide" role="status">No connection - trying again...</div>
+<section id="join">
+  <div class="brand"><svg class="logo" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+<path d="M24 4 L24 12" stroke="url(#bg)" stroke-width="3" stroke-linecap="round"/>
+<path d="M12 10 L17 15M36 10 L31 15" stroke="url(#bg)" stroke-width="3" stroke-linecap="round"/>
+<circle cx="24" cy="24" r="9" fill="url(#bg)"/>
+<path d="M9 44 L16 20 H32 L39 44 Z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+<defs><linearGradient id="bg" x1="0" y1="0" x2="48" y2="48"><stop stop-color="#FFC94A"/><stop offset="1" stop-color="#FF7A1A"/></linearGradient></defs></svg><span>Beacon</span></div>
+  <input id="code" inputmode="numeric" maxlength="6" placeholder="Join code" aria-label="Join code" autocomplete="off">
+  <input id="nick" maxlength="20" placeholder="Your name" aria-label="Your name" autocomplete="off">
+  <button class="primary" id="go">Join a quiz</button>
+  <p id="msg" class="err" role="alert"></p>
+  <a class="feature-card" href="present.html" style="text-decoration:none;color:inherit;margin-top:14px">
+    <h2>Host a quiz</h2>
+    <p class="small">Log in to create studies and run a live session.</p>
+    <span class="arrow">&rarr;</span>
+  </a>
+  <p class="small" style="text-align:center;margin-top:16px">Only your name is used. Session results are deleted after 30 days.</p>
+</section>
+<section id="game" class="hide" aria-live="polite"><div id="box"></div><p id="note" class="err"></p></section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script><script src="lamp.js"></script>
+<script>
+const ERR={invalid_code:"We couldn't find that code. Check the big screen and try again.",nickname_taken:"That name is taken. Try another one.",bad_nickname:"Please use 2 to 20 letters or numbers.",nickname_not_allowed:"Please pick a different name.",too_many_attempts:"Too many tries. Wait a few minutes and try again.",removed:"You were removed from this session.",session_full:"This session is full.",answers_closed:"Answers are closed for this question.",too_late:"Time was up, so that one didn't count.",bad_text:"Please write 1-40 characters.",text_not_allowed:"Please choose different words."};
+const TF=['True','False'];
+let S,P,me='',ses,stt,drawn='';
+g('code').value=new URLSearchParams(location.search).get('c')||'';
+(async()=>{try{await anon()}catch(e){}loadTheme()})();
+async function anon(){const{data:{session}}=await sb.auth.getSession();if(!session){const{error}=await sb.auth.signInAnonymously();if(error)throw error}}
+async function tryJoin(code,nick){try{await anon();const{data,error}=await sb.rpc('join_session',{p_code:code,p_nickname:nick});if(error||!data)return'net';if(!data.ok)return data.error;
+ localStorage.lamp=JSON.stringify({code});S=data.session_id;P=data.participant_id;me=data.nickname;begin();return''}catch(e){return'net'}}
+g('go').onclick=async()=>{g('msg').textContent='';g('go').disabled=true;const e=await tryJoin(g('code').value.trim(),g('nick').value);g('go').disabled=false;if(e)g('msg').textContent=ERR[e]||'Connection problem. Check your data and try again.'};
+(async()=>{const s=localStorage.lamp&&JSON.parse(localStorage.lamp);if(s){const e=await tryJoin(s.code,'');if(e==='invalid_code'||e==='removed')localStorage.removeItem('lamp')}})();
+function begin(){g('join').classList.add('hide');g('game').classList.remove('hide');syncClock();
+ sb.channel('s'+S).on('postgres_changes',{event:'UPDATE',schema:'public',table:'sessions',filter:'id=eq.'+S},refresh).subscribe();
+ setInterval(refresh,5000);refresh()}
+async function refresh(){try{const[a,b]=await Promise.all([sb.from('sessions').select('status,current_index,current_question,question_ends_at').eq('id',S).single(),sb.rpc('my_state',{p_session_id:S})]);
+ if(a.error||!b.data)throw 0;g('off').classList.add('hide');ses=a.data;stt=b.data;draw()}catch(e){g('off').classList.remove('hide')}}
+function optsFor(q){return q.kind==='true_false'?TF:q.options}
+function ansHtml(q,ci,tx){if(q.kind==='word_cloud')return`<div class="card"><p class="small">Your answer</p><b>${esc(tx)}</b></div>`;
+ const o=optsFor(q);return`<p class="opt ${CL[ci]}" style="padding:14px 18px;border-radius:16px"><b>${SH[ci]}</b>${esc(o[ci])}</p>`}
+async function draw(){const k=[ses.status,ses.current_index,stt.choice_index,stt.text_answer,stt.removed].join();if(k===drawn)return;drawn=k;g('note').textContent='';
+ const q=ses.current_question,box=g('box');
+ if(stt.removed){box.innerHTML='<h2>You were removed from this session.</h2>';return}
+ if(ses.status==='lobby')box.innerHTML=`<h2>You're in, ${esc(me)}!</h2><p>Waiting for the host to start...</p>`;
+ else if(ses.status==='question'){
+  const answered=stt.choice_index!=null||stt.text_answer!=null;
+  if(answered)fadeSwap(box,`<div class="lockedin">&#10003;</div><h2>Answer locked in</h2>${ansHtml(q,stt.choice_index,stt.text_answer)}<p>Waiting for everyone...</p>`);
+  else{
+   let inner;
+   if(q.kind==='rating')inner=`<div class="scale">${[1,2,3,4,5].map((n,i)=>`<button data-r="${i}">${n}</button>`).join('')}</div><div class="row small" style="justify-content:space-between"><span>${esc(q.options[0])}</span><span>${esc(q.options[1])}</span></div>`;
+   else if(q.kind==='word_cloud')inner=`<input id="wc" maxlength="40" placeholder="Type your answer" aria-label="Your answer" autocomplete="off"><button class="primary" id="wcgo">Send</button>`;
+   else{const o=optsFor(q);inner=`<div class="opts">${o.map((op,i)=>`<button class="opt ${CL[i]}" data-i="${i}" aria-label="Option ${i+1}: ${esc(op)}"><b>${SH[i]}</b>${esc(op)}</button>`).join('')}</div>`}
+   box.style.transition='none';box.style.opacity=1;box.style.transform='none';box.innerHTML=`<p class="small">Question ${q.index+1} of ${q.total}</p><h2>${esc(q.prompt)}</h2><div class="ring" id="ringwrap"><span id="tm"></span></div>${inner}`}}
+ else if(ses.status==='locked')fadeSwap(box,'<h2>Answers are in!</h2><p>Waiting for the reveal...</p>');
+ else if(ses.status==='revealed'){
+  if(q.kind==='poll'||q.kind==='rating')fadeSwap(box,'<h2>Thanks for sharing!</h2>');
+  else if(q.kind==='word_cloud')fadeSwap(box,'<h2>Thanks for your answer!</h2>');
+  else{const ok=stt.is_correct,ca=stt.correct_index,o=optsFor(q);if(ok)confettiBurst(50);
+   fadeSwap(box,(ok?`<h2>Well done! +${stt.points}</h2>`:stt.choice_index==null?'<h2>Time ran out. No worries!</h2>':'<h2>Good try!</h2>')+(ok?'':`<p>The answer was ${SH[ca]} ${esc(o[ca])}.</p>`)+`<p>Score ${stt.score} - rank ${stt.rank} of ${stt.total}</p>`)}}
+ else{const{data}=await sb.rpc('get_leaderboard',{p_session_id:S,p_limit:5});const ended=ses.status==='ended';if(ended){localStorage.removeItem('lamp');confettiBurst(90)}
+  const top=data?.top||[],mx=Math.max(1,...top.map(r=>r.score));
+  fadeSwap(box,`<h2>${ended?'Thanks for joining!':'Leaderboard'}</h2><ul class="lb">${top.map(r=>`<li class="${r.is_me?'me':''}"><span class="rank">${r.rank}</span><div class="bar"><i class="fillbar ${CL[r.rank%4]}" data-w="${Math.max(14,r.score/mx*100)}"></i><span class="lbl">${esc(r.nickname)}</span><span class="pts" style="color:${r.score>0?'#fff':'inherit'}">${r.score}</span></div></li>`).join('')}</ul>`+(data?.me?`<p>You: rank ${data.me.rank} of ${data.total} with ${data.me.score} points</p>`:''),
+   ()=>requestAnimationFrame(()=>requestAnimationFrame(()=>box.querySelectorAll('.fillbar').forEach(el=>el.style.width=el.dataset.w+'%'))));}}
+g('box').onclick=async e=>{
+ const b=e.target.closest('.opt[data-i]');if(b){const i=+b.dataset.i;g('box').querySelectorAll('.opt,.scale button,#wcgo').forEach(x=>x.disabled=true);
+  const{data}=await sb.rpc('submit_answer',{p_session_id:S,p_choice:i});
+  if(data&&(data.ok||data.error==='already_answered')){stt.choice_index=i;draw()}else{g('note').textContent=ERR[data&&data.error]||'Could not send. Try again.';drawn='';refresh()}return}
+ const r=e.target.closest('.scale button[data-r]');if(r){const i=+r.dataset.r;r.classList.add('picked');g('box').querySelectorAll('.opt,.scale button,#wcgo').forEach(x=>x.disabled=true);
+  const{data}=await sb.rpc('submit_answer',{p_session_id:S,p_choice:i});
+  if(data&&(data.ok||data.error==='already_answered')){stt.choice_index=i;draw()}else{g('note').textContent=ERR[data&&data.error]||'Could not send. Try again.';drawn='';refresh()}return}
+ if(e.target.id==='wcgo'){const v=g('wc').value.trim();if(!v)return;g('box').querySelectorAll('.opt,.scale button,#wcgo').forEach(x=>x.disabled=true);
+  const{data}=await sb.rpc('submit_answer',{p_session_id:S,p_text:v});
+  if(data&&(data.ok||data.error==='already_answered')){stt.text_answer=v;draw()}else{g('note').textContent=ERR[data&&data.error]||'Could not send. Try again.';drawn='';refresh()}}};
+setInterval(()=>{const t=g('tm'),w=g('ringwrap');if(!t||!ses||ses.status!=='question')return;const q=ses.current_question,left=Math.max(0,(new Date(ses.question_ends_at)-now())/1000),total=q.time_limit;
+ t.textContent=Math.ceil(left)+'s';if(w){w.style.setProperty('--pct',Math.max(0,left/total*100));w.classList.toggle('low',left<=5&&left>0)}if(!left&&!t.dataset.z){t.dataset.z=1;refresh()}},150);
+addEventListener('online',refresh);document.addEventListener('visibilitychange',()=>{if(!document.hidden&&S)refresh()});
+</script></body></html>
