@@ -41,7 +41,13 @@ async function showList(){cur=null;g('edit').classList.add('hide');g('list').cla
    <h2 style="margin-top:0">✨ Generate with AI</h2>
    <p class="small">Type a Bible passage or topic and get a draft set of questions to review and edit.</p>
    <div class="row"><input id="aiTopic" placeholder="e.g. Romans 12 - Living Differently" style="flex:2"><input id="aiCount" type="number" min="1" max="15" value="8" aria-label="Number of questions" style="max-width:110px"></div>
-   <button class="primary" id="aiGo">Generate questions</button><p id="aiMsg" class="err"></p>
+   <button class="primary" id="aiGo">Generate questions</button>
+   <p id="aiMsg" class="err"></p>
+   <div id="aiChat" class="hide" style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px">
+     <p class="small" style="margin-top:0">Want to change them? Tell me what to adjust.</p>
+     <div class="row"><input id="aiRevise" placeholder="e.g. make them harder, or add one about grace" style="flex:2"><button class="alt" id="aiReviseGo" style="max-width:110px">Revise</button></div>
+     <p id="aiReviseMsg" class="small"></p>
+   </div>
  </div>
  <button class="alt" data-new="1" style="max-width:220px">+ Blank study</button>`+(data||[]).map(s=>`<div class="card row" style="align-items:center;justify-content:space-between"><b>${esc(s.title)}</b><div class="row" style="width:auto"><button data-open="${s.id}">Open</button><button class="alt" data-dupst="${s.id}">Duplicate</button><button class="alt" data-delst="${s.id}">Delete</button></div></div>`).join('')}
 function blank(){return{kind:'multiple_choice',prompt:'',opts:['','','',''],correct:0,time:DEF.time,pts:DEF.pts,scaleLo:'Strongly disagree',scaleHi:'Strongly agree'}}
@@ -97,23 +103,82 @@ function fromAI(item){
  const padded=[...opts,'','','',''].slice(0,4);
  const correct=kind==='poll'?0:Math.min(3,Math.max(0,parseInt(item.correct_index,10)||0));
  return{kind,prompt:String(item.prompt||''),opts:padded,correct,time,pts:kind==='poll'?0:clampPts(item.points),scaleLo:'Strongly disagree',scaleHi:'Strongly agree'}}
+let aiHistory=[];   // [{role:'user'|'model', text:'...'}] for the current chat
+
+function showAiChat(show){
+ const c=g('aiChat'); if(!c) return;
+ c.classList.toggle('hide',!show);
+}
+
+async function callAi(topic,count,history){
+ const{data:{session}}=await sb.auth.getSession();
+ const r=await fetch('/api/generate-questions',{
+   method:'POST',
+   headers:{'content-type':'application/json',authorization:'Bearer '+(session&&session.access_token||'')},
+   body:JSON.stringify({topic,count,history:history||[]})
+ });
+ const out=await r.json();
+ if(!r.ok){
+   const err=out.error;
+   if(err==='ai_not_configured') throw new Error("AI isn't set up yet - add the Gemini API key first.");
+   if(err==='not_host') throw new Error('Please log in again.');
+   throw new Error('Could not generate questions. Try again.');
+ }
+ const items=Array.isArray(out.questions)?out.questions:[];
+ if(!items.length) throw new Error('No questions came back. Try a different topic.');
+ return items;
+}
+
 async function generateAI(){
- const topic=g('aiTopic').value.trim(),count=Math.min(15,Math.max(1,+g('aiCount').value||8)),msg=g('aiMsg');msg.textContent='';
+ const topic=g('aiTopic').value.trim(),count=Math.min(15,Math.max(1,+g('aiCount').value||8)),msg=g('aiMsg');
+ msg.textContent='';g('aiReviseMsg').textContent='';
  if(!topic){msg.textContent='Type a topic or passage first.';return}
  const btn=g('aiGo');btn.disabled=true;msg.textContent='Generating...';
  try{
-  const{data:{session}}=await sb.auth.getSession();
-  const r=await fetch('/api/generate-questions',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+(session&&session.access_token||'')},body:JSON.stringify({topic,count})});
-  const out=await r.json();
-  if(!r.ok){msg.textContent=out.error==='ai_not_configured'?"AI isn't set up yet - add the Gemini API key first.":out.error==='not_host'?'Please log in again.':'Could not generate questions. Try again.';btn.disabled=false;return}
-  const items=Array.isArray(out.questions)?out.questions:[];
-  if(!items.length){msg.textContent='No questions came back. Try a different topic.';btn.disabled=false;return}
+  const items=await callAi(topic,count,[]);
   const{data:study,error}=await sb.from('studies').insert({title:topic.slice(0,120)}).select('id').single();
-  if(error){msg.textContent='Could not create the study: '+error.message;btn.disabled=false;return}
-  cur=study;active=0;Q=items.map(fromAI);render()
- }catch(e){msg.textContent='Connection problem. Try again.';btn.disabled=false}}
-document.addEventListener('click',async e=>{const d=e.target.dataset;
- if(e.target.id==='aiGo'){generateAI();return}
+  if(error)throw new Error('Could not create the study: '+error.message);
+  cur=study;active=0;Q=items.map(fromAI);
+  aiHistory=[
+    {role:'user', text:'Topic: '+topic+'. Write '+count+' questions.'},
+    {role:'model', text:JSON.stringify(items)}
+  ];
+  render();
+  showAiChat(true);
+ }catch(e){msg.textContent=e.message||'Connection problem. Try again.'}
+ finally{btn.disabled=false}
+}
+
+async function reviseAI(){
+ const instruction=g('aiRevise').value.trim(),msg=g('aiReviseMsg');
+ if(!instruction){msg.textContent='Type what you want changed.';return}
+ if(!cur||!Q.length){msg.textContent='Generate some questions first.';return}
+ const btn=g('aiReviseGo');btn.disabled=true;msg.textContent='Revising...';
+ try{
+  const topic=g('aiTopic').value.trim()||cur.title||'(existing study)';
+  const count=Q.length;
+  const history=aiHistory.concat([{role:'user', text:instruction}]);
+  const items=await callAi(topic,count,history);
+  // Replace the current unsaved questions with the revised set.
+  Q=items.map(fromAI);
+  active=0;
+  aiHistory=[
+    {role:'user', text:'Topic: '+topic+'. Write '+count+' questions.'},
+    {role:'model', text:JSON.stringify(items.slice(0,0))}, // placeholder, we use real below
+    ...history.slice(2)
+  ];
+  // simpler: keep the full evolving conversation
+  aiHistory=history.concat([{role:'model', text:JSON.stringify(items)}]);
+  g('aiRevise').value='';
+  render();
+  msg.textContent='Updated. Review and edit before saving.';
+ }catch(e){msg.textContent=e.message||'Connection problem. Try again.'}
+ finally{btn.disabled=false}
+}
+document.addEventListener(['click','keydown'],async e=>{const d=e.target.dataset;
+  if(e.target.id==='aiGo'){generateAI();return}
+ if(e.target.id==='aiReviseGo'){reviseAI();return}
+ if(e.target.id==='aiRevise'&&e.type==='keydown'&&e.key==='Enter'){reviseAI();return}
  if(d.new){const{data}=await sb.from('studies').insert({title:'Untitled study'}).select('id').single();open(data.id)}
  if(d.open)open(d.open);if(d.back)showList();if(d.dupst)dupStudy(d.dupst);
  if(d.delst&&confirm('Delete this study and its questions?')){await sb.from('studies').delete().eq('id',d.delst);showList()}
