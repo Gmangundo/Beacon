@@ -1,9 +1,15 @@
 // Server-side only. Keeps the Gemini key off the browser and checks the
 // caller is the logged-in Beacon host before spending any quota.
+// Supports chat-style revisions: pass an optional `history` array of
+// {role:'user'|'model', text:'...'} turns to have the model revise its
+// previous output ("make them harder", "more about grace", etc.).
 const SUPABASE_URL = 'https://drklvnkojrzggseutfqc.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRya2x2bmtvanJ6Z2dzZXV0ZnFjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAyNzk3ODYsImV4cCI6MjEwNTg1NTc4Nn0.QNxToN1RKrvvhSVu-DjgN5UWXUSxMMK3payxU46NU1M';
 
 const SYSTEM = `You write quiz questions for a live Bible-study quiz app called Beacon, used by a South African youth/young-adult group.
+
+Write in a warm, conversational voice - like an experienced youth leader talking to the group, not a textbook. Prefer questions that spark thinking over dry fact-recall. Mix in reflective "why do you think..." and "what would you do..." phrasing where it fits. For multiple_choice, write plausible distractors that catch common misconceptions, not obviously-wrong ones.
+
 Return ONLY a JSON array (no prose, no markdown fences). Each item:
 {"kind":"multiple_choice"|"true_false"|"poll"|"rating"|"word_cloud","prompt":string,"options":string[],"correct_index":number|null,"time":number,"points":number}
 Rules:
@@ -49,16 +55,41 @@ module.exports = async (req, res) => {
   const count = Math.min(15, Math.max(1, parseInt((body && body.count), 10) || 8));
   if (!topic) return res.status(400).json({ error: 'missing_topic' });
 
+  // Optional chat history for revisions.
+  const history = Array.isArray(body && body.history) ? body.history.slice(-8) : [];
+
   try {
+    // Build the contents array. If history is present, we replay the
+    // conversation so the model can revise its previous output.
+    const contents = [];
+    contents.push({ role: 'user', parts: [{ text: SYSTEM }] });
+
+    if (history.length === 0) {
+      contents.push({
+        role: 'user',
+        parts: [{ text: 'Topic/passage: ' + topic + '\nNumber of questions: ' + count + '\nReturn ONLY the JSON array.' }]
+      });
+    } else {
+      contents.push({ role: 'model', parts: [{ text: 'Understood.' }] });
+      for (const turn of history) {
+        if (!turn || typeof turn.text !== 'string') continue;
+        const role = turn.role === 'model' ? 'model' : 'user';
+        contents.push({ role, parts: [{ text: String(turn.text).slice(0, 2000) }] });
+      }
+      contents.push({
+        role: 'user',
+        parts: [{ text: 'Return the FULL revised JSON array of questions now, using the same shape as before. No prose, just JSON.' }]
+      });
+    }
+
     const r = await fetch(
       'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + key,
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          systemInstruction: { parts: [{ text: SYSTEM }] },
-          contents: [{ parts: [{ text: 'Topic/passage: ' + topic + '\nNumber of questions: ' + count + '\nReturn ONLY the JSON array.' }] }],
-          generationConfig: { responseMimeType: 'application/json', temperature: 0.7 }
+          contents,
+          generationConfig: { responseMimeType: 'application/json', temperature: 0.85 }
         })
       }
     );
