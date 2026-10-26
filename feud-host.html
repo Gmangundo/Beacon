@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="description" content="Beacon: live Bible-study quizzes and Family Feud for your group."><meta name="theme-color" content="#0A0E1C"><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23E8A93D'/%3E%3C/svg%3E"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Beacon Family Feud host</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="lamp.css">
+<style>.stage{display:grid;grid-template-columns:220px 1fr 220px;gap:20px;align-items:start}.tp{padding:18px;border-radius:24px;border:1.5px solid var(--c);background:color-mix(in srgb,var(--c) 14%,var(--surface))}
+.r{--c:#FF6B6B}.bl{--c:#5AA9FF}.tp h3{margin:0;color:var(--c)}.sc{font-size:3.4rem;font-weight:800}.pl{display:flex;flex-wrap:wrap;gap:8px}.pl span{width:44px;height:44px;border-radius:50%;background:var(--surface-2);display:grid;place-items:center;font-size:1.4rem;animation:fl 3s ease-in-out infinite}
+@keyframes fl{50%{transform:translateY(-8px)}}.board{perspective:1200px}.bd{transform:rotateX(8deg);transform-origin:50% 100%;display:flex;flex-direction:column;gap:10px}
+.row{display:flex;gap:14px;padding:16px 20px;border-radius:18px;border:1.5px solid var(--line);background:var(--surface);font-weight:800;font-size:1.3rem;color:var(--sub)}.row.on{background:linear-gradient(135deg,var(--accent2),var(--accent));color:#241300;animation:fp .5s var(--ease)}
+@keyframes fp{from{transform:rotateX(90deg)}}.row b{flex:1}.cc{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0}.cc button{padding:8px 12px;font-size:.9rem}
+.st{font-size:2rem;color:#FF6B6B;font-weight:800;min-height:2.4rem;text-align:center}.bz{text-align:center;font-size:1.3rem;font-weight:800;color:var(--accent2)}
+@media(max-width:900px){.stage{grid-template-columns:1fr}}</style></head>
+<body><main class="wide">
+<section id="gate" class="hide" style="max-width:420px;margin:auto"><h2>Host login needed</h2><p><a href="present.html">Log in on the host page</a>, then come back here.</p></section>
+<section id="setup" class="hide" style="max-width:640px;margin:auto"><h1>Family Feud: build the survey</h1>
+<input id="q" placeholder="Question" aria-label="Question">
+<textarea id="ans" rows="6" placeholder="One answer per line, with points:&#10;Genesis, 38&#10;Psalms, 24&#10;John, 18" aria-label="Answers and points"></textarea>
+<button class="primary" id="mk">Create game</button><p id="msg" class="err" role="alert"></p></section>
+<section id="stage" class="hide"><canvas id="s3d" aria-label="3D stage with team podiums and player emojis" style="width:100%;height:280px;display:block;border-radius:24px;margin-bottom:12px"></canvas><div id="top"></div><div class="stage" id="st"></div><div id="ctl"></div><div id="call"></div></section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script><script src="config.js"></script><script src="lamp.js"></script><script src="stage3d.js"></script><script src="call.js"></script>
+<script>
+let G,P=[],ans=[],cheat=false,nextMode=false,CODES={};
+(async()=>{loadTheme();const{data:ok}=await sb.rpc('is_host');if(!ok){g('gate').classList.remove('hide');return}
+ const{data:r}=await sb.from('feud_games').select('*').eq('active',true).order('created_at',{ascending:false}).limit(1);
+ if(r&&r[0])open(r[0]);else g('setup').classList.remove('hide')})();
+g('mk').onclick=async()=>{g('msg').textContent='';const a=g('ans').value.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{const i=l.lastIndexOf(',');return{text:(i<0?l:l.slice(0,i)).trim(),points:i<0?0:parseInt(l.slice(i+1))||0}});
+ if(!g('q').value.trim()||a.length<2){g('msg').textContent='Add a question and at least 2 answers.';return}
+ const{data,error}=await sb.rpc(nextMode?'feud_next_round':'feud_create',nextMode?{p_game:G.id,p_question:g('q').value,p_answers:a}:{p_question:g('q').value,p_answers:a});if(error||!data||data.error){g('msg').textContent='Could not save. Did you run all three SQL files?';return}
+ ans=a;if(nextMode){nextMode=false;g('setup').classList.add('hide');g('stage').classList.remove('hide');refresh()}else open(data)};
+function open(game){G=game;g('setup').classList.add('hide');g('stage').classList.remove('hide');Stage3D.init(g('s3d'));sb.rpc('feud_get_codes',{p_game:G.id}).then(r=>{if(r.data&&!r.data.error){CODES=r.data;draw()}});
+ if(window._fc)sb.removeChannel(window._fc);clearInterval(window._fi);window._fc=sb.channel('fh'+G.id).on('postgres_changes',{event:'UPDATE',schema:'public',table:'feud_games',filter:'id=eq.'+G.id},refresh).subscribe();window._fi=setInterval(refresh,2500);refresh()}
+async function refresh(){const[a,b,c]=await Promise.all([sb.from('feud_games').select('*').eq('id',G.id).single(),sb.from('feud_players').select('team,nickname,emoji').eq('game_id',G.id),sb.from('feud_secret').select('answers').eq('game_id',G.id).single()]);
+ if(a.data)G=a.data;P=b.data||[];if(c.data)ans=c.data.answers;draw()}
+const pl=t=>P.filter(p=>p.team===t).map(p=>`<span title="${esc(p.nickname)}">${esc(p.emoji)}</span>`).join('');
+function draw(){Stage3D.set(P,G.buzzed_team);const rev=i=>G.board.find(r=>r.i===i);
+ g('top').innerHTML=`<p class="small" style="text-align:center">Join at this site's Family Feud page. Red code <b>${CODES.red||'...'}</b> &middot; Blue code <b>${CODES.blue||'...'}</b></p><h1 style="text-align:center">${esc(G.question)}</h1>`;
+ g('st').innerHTML=`<div class="tp r"><h3>RED TEAM</h3><div class="sc">${G.red_score}</div><div class="pl">${pl('red')}</div></div>
+ <div class="board"><div class="bd">${Array.from({length:G.answer_count},(_,i)=>{const r=rev(i);return r?`<div class="row on"><span>${i+1}</span><b>${esc(r.text)}</b><span>${r.points}</span></div>`:`<div class="row"><span>${i+1}</span><b>· · · · · ·</b><span>??</span></div>`}).join('')}</div>
+ <div class="st">${'X '.repeat(G.strikes)}</div><div class="bz" style="${G.buzzed_team?'color:'+(G.buzzed_team==='red'?'#FF6B6B':'#5AA9FF'):''}">${G.status==='open'?'Buzzers open':G.status==='buzzed'?esc(G.buzzed_by)+' buzzed first!':'Buzzers locked'}</div></div>
+ <div class="tp bl"><h3>BLUE TEAM</h3><div class="sc">${G.blue_score}</div><div class="pl">${pl('blue')}</div></div>`;
+ g('ctl').innerHTML=`<div class="cc"><button class="primary" data-a="open">Open buzzers</button><button class="alt" data-a="closed">Lock buzzers</button><button class="alt" data-a="strike">Add strike</button><button class="alt" data-a="next">Next question</button><button class="alt" data-a="new">New game</button><button class="alt" id="callbtn">Join call</button><label class="small"><input type="checkbox" id="ch" ${cheat?'checked':''}> Show my answers</label></div>`+
+ Array.from({length:G.answer_count},(_,i)=>rev(i)?'':`<div class="cc"><span>Reveal ${i+1}${cheat&&ans[i]?' ('+esc(ans[i].text)+')':''}:</span><button class="alt" data-a="rev" data-i="${i}" data-t="red">Red</button><button class="alt" data-a="rev" data-i="${i}" data-t="blue">Blue</button><button class="alt" data-a="rev" data-i="${i}" data-t="">No points</button></div>`).join('')}
+g('ctl').onclick=async e=>{if(e.target.id==='callbtn'){Call.toggle(g('call'),G.id,'Host',false);return}if(e.target.id==='ch'){cheat=e.target.checked;draw();return}const b=e.target.closest('button[data-a]');if(!b)return;const a=b.dataset.a;
+ if(a==='open'||a==='closed')await sb.rpc('feud_status',{p_game:G.id,p_status:a});
+ else if(a==='strike')await sb.rpc('feud_strike',{p_game:G.id});
+ else if(a==='rev')await sb.rpc('feud_reveal',{p_game:G.id,p_index:+b.dataset.i,p_team:b.dataset.t});
+ else if(a==='new'||a==='next'){nextMode=a==='next';g('stage').classList.add('hide');g('setup').classList.remove('hide');return}
+ refresh()};
+</script></body></html>
