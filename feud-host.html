@@ -58,19 +58,45 @@ async function refresh(){const[a,b,c]=await Promise.all([sb.from('feud_games').s
 const pl=t=>P.filter(p=>p.team===t).map(p=>`<span title="${esc(p.nickname)}">${esc(p.emoji)}</span>`).join('');
 let AC,prev={};
 function beep(f,d,ty,v,t0){try{AC=AC||new AudioContext();AC.resume();t0=t0||0;const o=AC.createOscillator(),k=AC.createGain(),n=AC.currentTime+t0;o.type=ty;o.frequency.value=f;k.gain.setValueAtTime(v,n);k.gain.exponentialRampToValueAtTime(.001,n+d);o.connect(k);k.connect(AC.destination);o.start(n);o.stop(n+d)}catch(_){}}
-const SFX={ding(){beep(880,.25,'sine',.25);beep(1320,.4,'sine',.2,.12)},strike(){beep(110,.7,'sawtooth',.3);beep(95,.7,'square',.2)},buzz(){beep(520,.15,'square',.2);beep(780,.25,'square',.2,.12)}};
+const SFX={ding(){beep(880,.25,'sine',.25);beep(1320,.4,'sine',.2,.12)},strike(){beep(110,.7,'sawtooth',.3);beep(95,.7,'square',.2)},buzz(){beep(520,.15,'square',.2);beep(780,.25,'square',.2,.12)},win(){[523,659,784,1047].forEach((f,i)=>beep(f,.35,'triangle',.25,i*.14))}};
 function bigX(){const d=document.createElement('div');d.textContent='X';d.setAttribute('aria-hidden','true');d.style.cssText='position:fixed;inset:0;z-index:99;display:grid;place-items:center;font:900 min(60vh,60vw)/1 Inter,sans-serif;color:#FF4D4D;text-shadow:0 0 60px rgba(255,77,77,.8);background:rgba(0,0,0,.45);pointer-events:none;animation:xp 1.1s ease-out forwards';document.body.appendChild(d);setTimeout(()=>d.remove(),1100)}
 function fx(){if(prev.init){if(G.strikes>prev.s){bigX();SFX.strike()}if(G.board.length>prev.b)SFX.ding();if(G.buzzed_team&&G.buzzed_team!==prev.t)SFX.buzz()}prev={init:1,s:G.strikes,b:G.board.length,t:G.buzzed_team}}
+let FM=null,FT;
+const fmTot=()=>FM.sc.flat().reduce((a,b)=>a+b,0);
+function fmOpen(){FM={q:[],pass:0,i:0,sec:20,run:false,sc:[[],[]],done:false};let o=g('fm');if(!o){o=document.createElement('div');o.id='fm';o.setAttribute('role','dialog');o.setAttribute('aria-label','Fast Money');o.style.cssText='position:fixed;inset:0;z-index:60;overflow:auto;padding:28px;background:rgba(7,10,20,.95)';document.body.appendChild(o);o.onclick=fmClick}o.style.display='block';fmDraw()}
+function fmDraw(){const o=g('fm');
+ if(!FM.q.length){o.innerHTML='<h1>Fast Money</h1><p class="small">Two players, five questions each. Reach 200 points between them to win.</p><input id="fmt" placeholder="Topic or theme for the questions" aria-label="Topic or theme" style="max-width:520px"><div class="cc"><button class="primary" data-f="gen">Build 5 questions with AI</button><button class="alt" data-f="x">Close</button></div><p id="fmm" class="small"></p>';return}
+ const P=FM.pass,t=fmTot(),cell=(p,i)=>FM.sc[p][i]==null?'<span style="color:var(--sub)">--</span>':FM.sc[p][i];
+ const btns=FM.done?'':FM.run?FM.q[FM.i].answers.map((a,j)=>`<button class="alt" data-f="a" data-j="${j}">#${j+1}${cheat?' '+esc(a.text):''}</button>`).join('')+'<button class="alt" data-f="a" data-j="-1">No match</button>':`<button class="primary" data-f="go">Start Player ${P+1} (${P?25:20}s)</button>`;
+ o.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center"><h1 style="margin:0">Fast Money</h1><div style="font-size:3rem;font-weight:800">${t} / 200</div></div>
+ <div class="small">Player ${Math.min(P+1,2)} of 2 &middot; ${FM.done?'Finished':FM.run?'Go!':'Ready'}</div>
+ <div style="font-size:4.5rem;font-weight:800;text-align:center">${FM.done?'':FM.sec}</div>
+ <h2 style="text-align:center">${FM.done?(t>=200?'WINNER! 200 points reached!':'So close! Not enough points this time.'):esc(FM.q[FM.i].question)}</h2>
+ <div style="max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:8px">${FM.q.map((r,i)=>`<div class="row"><span>${i+1}</span><b>${esc(r.question)}</b><span>${cell(0,i)}</span><span>${cell(1,i)}</span></div>`).join('')}</div>
+ <div class="cc" style="justify-content:center;margin-top:16px">${btns}<button class="alt" data-f="x">Close</button></div>`}
+function fmEnd(){clearInterval(FT);FM.run=false;for(let i=0;i<5;i++)if(FM.sc[FM.pass][i]==null)FM.sc[FM.pass][i]=0;
+ if(FM.pass===0){FM.pass=1;FM.i=0;FM.sec=25}else{FM.done=true;if(fmTot()>=200)SFX.win()}fmDraw()}
+function fmClick(e){const b=e.target.closest('[data-f]');if(!b)return;const f=b.dataset.f;
+ if(f==='x'){g('fm').style.display='none';clearInterval(FT)}
+ else if(f==='gen')fmGen();
+ else if(f==='go'){FM.run=true;FM.sec=FM.pass?25:20;clearInterval(FT);FT=setInterval(()=>{FM.sec--;if(FM.sec<=0)fmEnd();else fmDraw()},1000);fmDraw()}
+ else if(f==='a'){const j=+b.dataset.j,r=FM.q[FM.i];FM.sc[FM.pass][FM.i]=j<0?0:(r.answers[j]?r.answers[j].points:0);if(j<0)SFX.strike();else SFX.ding();if(FM.i<4){FM.i++;fmDraw()}else fmEnd()}}
+async function fmGen(){const t=g('fmt').value.trim();if(!t){g('fmm').textContent='Type a topic first.';return}g('fmm').textContent='Building questions...';
+ const{data,error}=await sb.functions.invoke('generate-questions',{body:{mode:'feud_chat',messages:[{role:'user',text:`Build exactly 5 rounds for a Fast Money final round about: ${t}. Do not ask any questions, build them now.`}]}});
+ const rs=data&&data.ready&&Array.isArray(data.rounds)?data.rounds.filter(r=>r&&r.question&&Array.isArray(r.answers)).slice(0,5):[];
+ if(rs.length<5){g('fmm').textContent=(error||!data)?await aiWhy(error,data):'The AI did not return 5 questions. Please try again.';return}
+ FM.q=rs.map(r=>({question:String(r.question),answers:r.answers.map(a=>({text:String(a.text),points:parseInt(a.points)||0}))}));fmDraw()}
 function draw(){fx();Stage3D.set(P,G.buzzed_team);const rev=i=>G.board.find(r=>r.i===i);
  g('top').innerHTML=`<p class="small" style="text-align:center">Join at this site's Family Feud page. Red code <b>${CODES.red||'...'}</b> &middot; Blue code <b>${CODES.blue||'...'}</b></p><div class="small" style="text-align:center">Round ${RN} of ${RN+QUEUE.length}</div><h1 style="text-align:center">${esc(G.question)}</h1>`;
  g('st').innerHTML=`<div class="tp r"><h3>RED TEAM</h3><div class="sc">${G.red_score}</div><div class="pl">${pl('red')}</div></div>
  <div class="board"><div class="bd">${Array.from({length:G.answer_count},(_,i)=>{const r=rev(i);return r?`<div class="row on"><span>${i+1}</span><b>${esc(r.text)}</b><span>${r.points}</span></div>`:`<div class="row"><span>${i+1}</span><b>· · · · · ·</b><span>??</span></div>`}).join('')}</div>
  <div class="st">${'X '.repeat(G.strikes)}</div>${G.mult>1?'<div class="bz" style="color:#FFC857">'+(G.mult===2?'DOUBLE':'TRIPLE')+' POINTS</div>':''}${G.strikes>=3?'<div class="bz" style="color:#FF6B6B">STEAL! The other team gets one guess</div>':''}<div class="bz" style="${G.buzzed_team?'color:'+(G.buzzed_team==='red'?'#FF6B6B':'#5AA9FF'):''}">${G.status==='open'?'Buzzers open':G.status==='buzzed'?esc(G.buzzed_by)+' buzzed first!':'Buzzers locked'}</div></div>
  <div class="tp bl"><h3>BLUE TEAM</h3><div class="sc">${G.blue_score}</div><div class="pl">${pl('blue')}</div></div>`;
- g('ctl').innerHTML=`<div class="cc"><button class="primary" data-a="open">Open buzzers</button><button class="alt" data-a="closed">Lock buzzers</button><button class="alt" data-a="mult" data-m="1">Points x1</button><button class="alt" data-a="mult" data-m="2">Double</button><button class="alt" data-a="mult" data-m="3">Triple</button><button class="alt" data-a="strike">Add strike</button><button class="alt" data-a="next">Next question${QUEUE.length?' ('+QUEUE.length+' left)':''}</button><button class="alt" data-a="new">New game</button><button class="alt" id="callbtn">Join call</button><label class="small"><input type="checkbox" id="ch" ${cheat?'checked':''}> Show my answers</label></div>`+
+ g('ctl').innerHTML=`<div class="cc"><button class="primary" data-a="open">Open buzzers</button><button class="alt" data-a="closed">Lock buzzers</button><button class="alt" data-a="fm">Fast Money</button><button class="alt" data-a="mult" data-m="1">Points x1</button><button class="alt" data-a="mult" data-m="2">Double</button><button class="alt" data-a="mult" data-m="3">Triple</button><button class="alt" data-a="strike">Add strike</button><button class="alt" data-a="next">Next question${QUEUE.length?' ('+QUEUE.length+' left)':''}</button><button class="alt" data-a="new">New game</button><button class="alt" id="callbtn">Join call</button><label class="small"><input type="checkbox" id="ch" ${cheat?'checked':''}> Show my answers</label></div>`+
  Array.from({length:G.answer_count},(_,i)=>rev(i)?'':`<div class="cc"><span>Reveal ${i+1}${cheat&&ans[i]?' ('+esc(ans[i].text)+')':''}:</span><button class="alt" data-a="rev" data-i="${i}" data-t="red">Red</button><button class="alt" data-a="rev" data-i="${i}" data-t="blue">Blue</button><button class="alt" data-a="rev" data-i="${i}" data-t="">No points</button></div>`).join('')}
 g('ctl').onclick=async e=>{if(e.target.id==='callbtn'){Call.toggle(g('call'),G.id,false);return}if(e.target.id==='ch'){cheat=e.target.checked;draw();return}const b=e.target.closest('button[data-a]');if(!b)return;const a=b.dataset.a;
  if(a==='open'||a==='closed')await sb.rpc('feud_status',{p_game:G.id,p_status:a});
+ else if(a==='fm'){fmOpen();return}
  else if(a==='mult')await sb.rpc('feud_set_mult',{p_game:G.id,p_mult:+b.dataset.m});
  else if(a==='strike')await sb.rpc('feud_strike',{p_game:G.id});
  else if(a==='rev')await sb.rpc('feud_reveal',{p_game:G.id,p_index:+b.dataset.i,p_team:b.dataset.t});
