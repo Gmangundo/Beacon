@@ -1,6 +1,6 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="description" content="Beacon: live Bible-study quizzes and Family Feud for your group."><meta name="theme-color" content="#0A0E1C"><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23E8A93D'/%3E%3C/svg%3E"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Beacon Family Feud host</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="lamp.css">
+<html lang="en"><head><meta charset="utf-8"><meta name="description" content="Beacon: live quizzes and Family Feud for your group."><meta name="theme-color" content="#0A0E1C"><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23E8A93D'/%3E%3C/svg%3E"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Beacon Family Feud host</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="lamp.css"><link rel="stylesheet" href="beacon-theme.css">
 <style>.stage{display:grid;grid-template-columns:220px 1fr 220px;gap:20px;align-items:start}.tp{padding:18px;border-radius:24px;border:1.5px solid var(--c);background:color-mix(in srgb,var(--c) 14%,var(--surface))}
 .r{--c:#FF6B6B}.bl{--c:#5AA9FF}.tp h3{margin:0;color:var(--c)}.sc{font-size:3.4rem;font-weight:800}.pl{display:flex;flex-wrap:wrap;gap:8px}.pl span{width:44px;height:44px;border-radius:50%;background:var(--surface-2);display:grid;place-items:center;font-size:1.4rem;animation:fl 3s ease-in-out infinite}
 @keyframes fl{50%{transform:translateY(-8px)}}.board{perspective:1200px}.bd{transform:rotateX(8deg);transform-origin:50% 100%;display:flex;flex-direction:column;gap:10px}
@@ -11,39 +11,64 @@
 <body><main class="wide">
 <section id="gate" class="hide" style="max-width:420px;margin:auto"><h2>Host login needed</h2><p><a href="present.html">Log in on the host page</a>, then come back here.</p></section>
 <section id="setup" class="hide" style="max-width:640px;margin:auto"><h1>Family Feud: build the survey</h1>
+<div class="card" style="padding:18px;margin:14px 0"><b>Build it with AI</b><div id="aic" aria-live="polite" style="max-height:230px;overflow:auto;margin:10px 0;display:flex;flex-direction:column;gap:8px"></div>
+<div style="display:flex;gap:8px"><input id="aii" placeholder="Tell the AI about your group and topic" aria-label="Message to the AI" style="flex:1" autocomplete="off"><button class="primary" id="aig" style="width:auto;padding:12px 22px">Send</button></div></div>
+<h2 style="font-size:1.1rem;margin:18px 0 6px">Rounds in this game</h2><div id="rl" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px"></div>
 <input id="q" placeholder="Question" aria-label="Question">
 <textarea id="ans" rows="6" placeholder="One answer per line, with points:&#10;Genesis, 38&#10;Psalms, 24&#10;John, 18" aria-label="Answers and points"></textarea>
-<button class="primary" id="mk">Create game</button><p id="msg" class="err" role="alert"></p></section>
+<div style="display:flex;gap:10px;flex-wrap:wrap"><button class="alt" id="add">Add this round</button><button class="primary" id="mk">Start game</button></div><p id="msg" class="err" role="alert"></p></section>
 <section id="stage" class="hide"><canvas id="s3d" aria-label="3D stage with team podiums and player emojis" style="width:100%;height:280px;display:block;border-radius:24px;margin-bottom:12px"></canvas><div id="top"></div><div class="stage" id="st"></div><div id="ctl"></div><div id="call"></div></section>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script><script src="config.js"></script><script src="lamp.js"></script><script src="stage3d.js"></script><script src="call.js"></script>
 <script>
-let G,P=[],ans=[],cheat=false,nextMode=false,CODES={};
+let G,P=[],ans=[],cheat=false,nextMode=false,CODES={},ROUNDS=[],QUEUE=[],RN=1;
 (async()=>{loadTheme();const{data:ok}=await sb.rpc('is_host');if(!ok){g('gate').classList.remove('hide');return}
  const{data:r}=await sb.from('feud_games').select('*').eq('active',true).order('created_at',{ascending:false}).limit(1);
  if(r&&r[0])open(r[0]);else g('setup').classList.remove('hide')})();
-g('mk').onclick=async()=>{g('msg').textContent='';const a=g('ans').value.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{const i=l.lastIndexOf(',');return{text:(i<0?l:l.slice(0,i)).trim(),points:i<0?0:parseInt(l.slice(i+1))||0}});
- if(!g('q').value.trim()||a.length<2){g('msg').textContent='Add a question and at least 2 answers.';return}
- const{data,error}=await sb.rpc(nextMode?'feud_next_round':'feud_create',nextMode?{p_game:G.id,p_question:g('q').value,p_answers:a}:{p_question:g('q').value,p_answers:a});if(error||!data||data.error){g('msg').textContent='Could not save. Did you run all three SQL files?';return}
- ans=a;if(nextMode){nextMode=false;g('setup').classList.add('hide');g('stage').classList.remove('hide');refresh()}else open(data)};
-function open(game){G=game;g('setup').classList.add('hide');g('stage').classList.remove('hide');Stage3D.init(g('s3d'));sb.rpc('feud_get_codes',{p_game:G.id}).then(r=>{if(r.data&&!r.data.error){CODES=r.data;draw()}});
+async function aiWhy(error,data){let e=data&&data.error;if(!e&&error&&error.context&&error.context.json){try{e=(await error.context.json()).error}catch(_){}}
+ return e==='host_only'?'Please log in as host first.':e==='no_key'?'The AI key is missing. Save GEMINI_API_KEY in Supabase.':e==='ai_failed'?'The AI service was busy. Please try again in a moment.':'Something went wrong talking to the AI. Please try again.'}
+const AIM=[];
+function say(r,t){const d=document.createElement('div');d.textContent=t;d.style.cssText='padding:10px 14px;border-radius:16px;max-width:88%;'+(r==='user'?'align-self:flex-end;background:rgba(255,200,87,.2)':'background:rgba(255,255,255,.08)');g('aic').appendChild(d);g('aic').scrollTop=1e9}
+say('ai',"Hi! Tell me about your group and what the round should be about. I'll ask a couple of quick questions, then build it for you to review.");
+async function aiSend(){const t=g('aii').value.trim();if(!t)return;say('user',t);g('aii').value='';AIM.push({role:'user',text:t});g('aig').disabled=true;
+ const{data,error}=await sb.functions.invoke('generate-questions',{body:{mode:'feud_chat',messages:AIM}});g('aig').disabled=false;
+ if(error||!data||!data.reply){say('ai',await aiWhy(error,data));AIM.pop();return}
+ AIM.push({role:'model',text:data.reply});say('ai',data.reply);
+ if(data.ready&&Array.isArray(data.rounds)&&data.rounds.length){data.rounds.forEach(r=>{if(r&&r.question&&Array.isArray(r.answers))ROUNDS.push({question:String(r.question),answers:r.answers.map(x=>({text:String(x.text).replace(/,/g,' '),points:parseInt(x.points)||0}))})});listRounds();say('ai','I added '+data.rounds.length+' rounds below. Remove any you do not want, then click Start game.')}}
+g('aig').onclick=aiSend;g('aii').onkeydown=e=>{if(e.key==='Enter')aiSend()};
+function parseAns(){return g('ans').value.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{const i=l.lastIndexOf(',');return{text:(i<0?l:l.slice(0,i)).trim(),points:i<0?0:parseInt(l.slice(i+1))||0}})}
+function listRounds(){g('rl').innerHTML=ROUNDS.map((r,i)=>`<div style="display:flex;gap:10px;align-items:center;padding:10px 14px;border-radius:14px;background:rgba(255,255,255,.07)"><b style="color:var(--accent2)">${i+1}</b><span style="flex:1">${esc(r.question)} <span class="small">(${r.answers.length} answers)</span></span><button class="alt" data-rm="${i}" style="width:auto;padding:6px 12px">Remove</button></div>`).join('')||'<p class="small">No rounds yet. Chat with the AI, or type one below and click Add this round.</p>'}
+listRounds();
+g('rl').onclick=e=>{const b=e.target.closest('[data-rm]');if(b){ROUNDS.splice(+b.dataset.rm,1);listRounds()}};
+function addRound(){const a=parseAns(),q=g('q').value.trim();if(!q||a.length<2){g('msg').textContent='Add a question and at least 2 answers.';return false}g('msg').textContent='';ROUNDS.push({question:q,answers:a});g('q').value='';g('ans').value='';listRounds();return true}
+g('add').onclick=addRound;
+function saveQ(){try{localStorage.feudq=JSON.stringify({g:G&&G.id,Q:QUEUE,RN})}catch(_){}}
+g('mk').onclick=async()=>{g('msg').textContent='';if((g('q').value.trim()||g('ans').value.trim())&&!addRound())return;
+ if(!ROUNDS.length){g('msg').textContent='Add at least one round first.';return}
+ const first=ROUNDS.shift(),added=ROUNDS.splice(0);QUEUE.push(...added);
+ const{data,error}=await sb.rpc(nextMode?'feud_next_round':'feud_create',nextMode?{p_game:G.id,p_question:first.question,p_answers:first.answers}:{p_question:first.question,p_answers:first.answers});
+ if(error||!data||data.error){QUEUE.splice(QUEUE.length-added.length);ROUNDS.unshift(first,...added);listRounds();g('msg').textContent='Could not save. Did you run all the SQL?';return}
+ ans=first.answers;listRounds();
+ if(nextMode){nextMode=false;RN++;saveQ();g('setup').classList.add('hide');g('stage').classList.remove('hide');refresh()}else{RN=1;open(data);saveQ()}};
+function open(game){G=game;try{const z=JSON.parse(localStorage.feudq||'null');if(z&&z.g===G.id){QUEUE=z.Q||[];RN=z.RN||1}}catch(_){}g('setup').classList.add('hide');g('stage').classList.remove('hide');Stage3D.init(g('s3d'));sb.rpc('feud_get_codes',{p_game:G.id}).then(r=>{if(r.data&&!r.data.error){CODES=r.data;draw()}});
  if(window._fc)sb.removeChannel(window._fc);clearInterval(window._fi);window._fc=sb.channel('fh'+G.id).on('postgres_changes',{event:'UPDATE',schema:'public',table:'feud_games',filter:'id=eq.'+G.id},refresh).subscribe();window._fi=setInterval(refresh,2500);refresh()}
 async function refresh(){const[a,b,c]=await Promise.all([sb.from('feud_games').select('*').eq('id',G.id).single(),sb.from('feud_players').select('team,nickname,emoji').eq('game_id',G.id),sb.from('feud_secret').select('answers').eq('game_id',G.id).single()]);
  if(a.data)G=a.data;P=b.data||[];if(c.data)ans=c.data.answers;draw()}
 const pl=t=>P.filter(p=>p.team===t).map(p=>`<span title="${esc(p.nickname)}">${esc(p.emoji)}</span>`).join('');
 function draw(){Stage3D.set(P,G.buzzed_team);const rev=i=>G.board.find(r=>r.i===i);
- g('top').innerHTML=`<p class="small" style="text-align:center">Join at this site's Family Feud page. Red code <b>${CODES.red||'...'}</b> &middot; Blue code <b>${CODES.blue||'...'}</b></p><h1 style="text-align:center">${esc(G.question)}</h1>`;
+ g('top').innerHTML=`<p class="small" style="text-align:center">Join at this site's Family Feud page. Red code <b>${CODES.red||'...'}</b> &middot; Blue code <b>${CODES.blue||'...'}</b></p><div class="small" style="text-align:center">Round ${RN} of ${RN+QUEUE.length}</div><h1 style="text-align:center">${esc(G.question)}</h1>`;
  g('st').innerHTML=`<div class="tp r"><h3>RED TEAM</h3><div class="sc">${G.red_score}</div><div class="pl">${pl('red')}</div></div>
  <div class="board"><div class="bd">${Array.from({length:G.answer_count},(_,i)=>{const r=rev(i);return r?`<div class="row on"><span>${i+1}</span><b>${esc(r.text)}</b><span>${r.points}</span></div>`:`<div class="row"><span>${i+1}</span><b>· · · · · ·</b><span>??</span></div>`}).join('')}</div>
  <div class="st">${'X '.repeat(G.strikes)}</div><div class="bz" style="${G.buzzed_team?'color:'+(G.buzzed_team==='red'?'#FF6B6B':'#5AA9FF'):''}">${G.status==='open'?'Buzzers open':G.status==='buzzed'?esc(G.buzzed_by)+' buzzed first!':'Buzzers locked'}</div></div>
  <div class="tp bl"><h3>BLUE TEAM</h3><div class="sc">${G.blue_score}</div><div class="pl">${pl('blue')}</div></div>`;
- g('ctl').innerHTML=`<div class="cc"><button class="primary" data-a="open">Open buzzers</button><button class="alt" data-a="closed">Lock buzzers</button><button class="alt" data-a="strike">Add strike</button><button class="alt" data-a="next">Next question</button><button class="alt" data-a="new">New game</button><button class="alt" id="callbtn">Join call</button><label class="small"><input type="checkbox" id="ch" ${cheat?'checked':''}> Show my answers</label></div>`+
+ g('ctl').innerHTML=`<div class="cc"><button class="primary" data-a="open">Open buzzers</button><button class="alt" data-a="closed">Lock buzzers</button><button class="alt" data-a="strike">Add strike</button><button class="alt" data-a="next">Next question${QUEUE.length?' ('+QUEUE.length+' left)':''}</button><button class="alt" data-a="new">New game</button><button class="alt" id="callbtn">Join call</button><label class="small"><input type="checkbox" id="ch" ${cheat?'checked':''}> Show my answers</label></div>`+
  Array.from({length:G.answer_count},(_,i)=>rev(i)?'':`<div class="cc"><span>Reveal ${i+1}${cheat&&ans[i]?' ('+esc(ans[i].text)+')':''}:</span><button class="alt" data-a="rev" data-i="${i}" data-t="red">Red</button><button class="alt" data-a="rev" data-i="${i}" data-t="blue">Blue</button><button class="alt" data-a="rev" data-i="${i}" data-t="">No points</button></div>`).join('')}
-g('ctl').onclick=async e=>{if(e.target.id==='callbtn'){Call.toggle(g('call'),G.id,'Host',false);return}if(e.target.id==='ch'){cheat=e.target.checked;draw();return}const b=e.target.closest('button[data-a]');if(!b)return;const a=b.dataset.a;
+g('ctl').onclick=async e=>{if(e.target.id==='callbtn'){Call.toggle(g('call'),G.id,false);return}if(e.target.id==='ch'){cheat=e.target.checked;draw();return}const b=e.target.closest('button[data-a]');if(!b)return;const a=b.dataset.a;
  if(a==='open'||a==='closed')await sb.rpc('feud_status',{p_game:G.id,p_status:a});
  else if(a==='strike')await sb.rpc('feud_strike',{p_game:G.id});
  else if(a==='rev')await sb.rpc('feud_reveal',{p_game:G.id,p_index:+b.dataset.i,p_team:b.dataset.t});
- else if(a==='new'||a==='next'){nextMode=a==='next';g('stage').classList.add('hide');g('setup').classList.remove('hide');return}
+ else if(a==='next'&&QUEUE.length){const r=QUEUE.shift();const{data:d}=await sb.rpc('feud_next_round',{p_game:G.id,p_question:r.question,p_answers:r.answers});if(d&&d.ok){ans=r.answers;RN++;saveQ()}else QUEUE.unshift(r)}
+ else if(a==='new'||a==='next'){nextMode=a==='next';if(a==='new'){ROUNDS=[];QUEUE=[];RN=1;listRounds()}g('mk').textContent=nextMode?'Start next round':'Start game';g('stage').classList.add('hide');g('setup').classList.remove('hide');return}
  refresh()};
-</script></body></html>
+</script><script src="fx.js" defer></script><script src="bg3d.js" defer></script><script src="shell.js" defer></script></body></html>
